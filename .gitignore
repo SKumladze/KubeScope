@@ -1,0 +1,11 @@
+cluster/generated/
+collector/kubescope
+bin/
+web/node_modules/
+web/dist/
+collector/internal/server/dist/*
+!collector/internal/server/dist/.keep
+*.db
+*.db-wal
+*.db-shm
+web/*.tsbuildinfo

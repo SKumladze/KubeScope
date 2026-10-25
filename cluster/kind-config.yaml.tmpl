@@ -1,0 +1,31 @@
+# Rendered by up.sh into generated/kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: kubescope
+nodes:
+  - role: control-plane
+    image: __NODE_IMAGE__
+    extraMounts:
+      - hostPath: __GENERATED_DIR__/audit
+        containerPath: /etc/kubernetes/kubescope
+        readOnly: true
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            audit-policy-file: /etc/kubernetes/kubescope/audit-policy.yaml
+            audit-webhook-config-file: /etc/kubernetes/kubescope/audit-webhook.kubeconfig
+            audit-webhook-mode: batch
+            audit-webhook-batch-max-wait: 300ms
+            audit-webhook-initial-backoff: 1s
+          extraVolumes:
+            - name: kubescope
+              hostPath: /etc/kubernetes/kubescope
+              mountPath: /etc/kubernetes/kubescope
+              readOnly: true
+              pathType: Directory
+  - role: worker
+    image: __NODE_IMAGE__
+  - role: worker
+    image: __NODE_IMAGE__

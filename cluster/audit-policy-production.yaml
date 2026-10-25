@@ -1,0 +1,76 @@
+# Lighter audit policy for real clusters (e.g. 10 node on-prem).
+#
+# Compared to audit-policy.yaml (the learning policy used by kind), the API server
+# does not even generate the high-volume, low-value events below. That saves CPU
+# and memory on the API server as well as disk in KubeScope.
+#
+# On an idle cluster these rules remove roughly 80% of all audit events.
+# Rules are checked top to bottom, the first match wins.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+rules:
+  # Health checks and metrics scraping: kubelet probes, load balancers, Prometheus.
+  - level: None
+    nonResourceURLs:
+      - /healthz*
+      - /livez*
+      - /readyz*
+      - /metrics
+      - /version
+
+  # API discovery: clients asking which APIs exist. Only matches non-resource
+  # URLs, so /api/v1/pods and friends are not affected.
+  - level: None
+    nonResourceURLs:
+      - /api
+      - /api/*
+      - /apis
+      - /apis/*
+      - /openapi/*
+
+  # Leader election and node liveness: every node and controller renews a lease every few seconds.
+  - level: None
+    resources:
+      - group: coordination.k8s.io
+        resources: ["leases"]
+
+  # The API server checking its own state (e.g. the "kubernetes" Service every 10 s).
+  - level: None
+    users: ["system:apiserver"]
+    verbs: ["get", "list", "watch"]
+
+  # Kubelet node status heartbeats.
+  - level: None
+    userGroups: ["system:nodes"]
+    verbs: ["get", "update", "patch"]
+    resources:
+      - group: ""
+        resources: ["nodes", "nodes/status"]
+
+  # Sensitive objects: who touched them, never their content.
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets", "configmaps", "serviceaccounts/token"]
+      - group: authentication.k8s.io
+        resources: ["tokenreviews"]
+
+  # Reads: who asked for what, no bodies.
+  - level: Metadata
+    verbs: ["get", "list", "watch"]
+
+  # Writes to workloads, networking and access control: full bodies.
+  - level: RequestResponse
+    resources:
+      - group: ""
+      - group: apps
+      - group: batch
+      - group: networking.k8s.io
+      - group: rbac.authorization.k8s.io
+      - group: policy
+      - group: autoscaling
+
+  # Everything else (CRDs, events...): metadata only.
+  - level: Metadata
