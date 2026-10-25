@@ -1,0 +1,10 @@
+.git
+bin
+data
+*.db
+*.db-*
+cluster/generated
+web/node_modules
+web/*.tsbuildinfo
+collector/internal/server/dist/*
+!collector/internal/server/dist/.keep

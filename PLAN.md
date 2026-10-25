@@ -32,7 +32,8 @@ Non goals (for now): production monitoring, multi-cluster, managed clusters, sec
 | Frontend | **React + TypeScript + Vite** | Common, well documented, fast dev loop |
 | Visualization | Custom HTML/SVG swimlanes | No library draws a k8s sequence diagram, so we draw lanes and arrows ourselves |
 | Lab cluster | **kind**: 1 control plane + 2 workers | Runs in Docker, lets us set any API server flag |
-| Packaging | Frontend embedded in the Go binary (`go:embed`) | `./kubescope` serves everything |
+| Packaging | Frontend embedded in the Go binary (`go:embed`), shipped as a ~15 MB Docker image (Node 24 LTS + Go 1.27 build stages, distroless runtime) | One container serves everything |
+| How it runs | **Docker container next to the cluster** (`kubescope-collector` on the `kind` network), started before the cluster, removed with it | Records the cluster being created, keeps working while the cluster is broken on purpose. In-cluster (Helm) is for real clusters, phase 9 |
 | Desktop (later) | **Wails** | Wraps the same Go backend + React UI into a desktop app without a rewrite |
 
 ---
@@ -40,25 +41,28 @@ Non goals (for now): production monitoring, multi-cluster, managed clusters, sec
 ## 3. Architecture
 
 ```
- kind cluster "kubescope" (Docker)                 host (WSL)
-┌────────────────────────────────────┐        ┌───────────────────────────────┐
-│ kube-apiserver ──audit webhook─────┼──────▶ │ kubescope (Go)                 │
-│ kube-apiserver ──OTel traces───────┼──────▶ │  ├ ingest/audit    (phase 1)   │
-│ CoreDNS (log plugin) ──logs────────┼──────▶ │  ├ ingest/dns      (phase 3)   │
-│ etcd ──watch /registry─────────────┼──────▶ │  ├ ingest/etcd     (phase 4)   │
-│ containerd ──events────────────────┼──────▶ │  ├ ingest/runtime  (phase 4)   │
-│ all resources ◀──client-go watch───┼─────── │  ├ classify  (who sent it)     │
-└────────────────────────────────────┘        │  ├ correlate (UIDs, owners)    │
-                                              │  ├ store (ring buffer/SQLite)  │
-                                              │  └ http: /ws, /api, UI         │
-                                              └──────────────┬────────────────┘
-                                                             │ WebSocket
-                                                             ▼
-                                                  Browser: swimlane diagram
+ Docker network "kind"                                           your machine
+┌──────────────────────────────────────────────────────────┐
+│ kind cluster "kubescope"            kubescope-collector  │
+│ ┌──────────────────────────────┐   ┌──────────────────┐  │
+│ │ kube-apiserver ─audit webhook┼──▶│ KubeScope (Go)   │  │
+│ │ kube-apiserver ─OTel traces──┼──▶│  ingest, classify│  │   ./data/kubescope.db
+│ │ CoreDNS logs, etcd, runtime ─┼──▶│  correlate       │──┼──▶ (history, mounted)
+│ │ all resources ◀─watch────────┼───│  store, http     │  │
+│ └──────────────────────────────┘   └────────┬─────────┘  │
+└─────────────────────────────────────────────┼────────────┘
+                                              │ 127.0.0.1:8090 (WebSocket + API + UI)
+                                              ▼
+                                    Browser: swimlane diagram
 ```
 
-The API server reaches the collector on the host through the Docker gateway of the
-`kind` network (e.g. `172.18.0.1:8090`). The setup script detects that address.
+`make cluster-up` starts the KubeScope container first, then creates the cluster with the
+webhook pointing at `kubescope-collector:8090` (resolved by Docker's DNS). `make cluster-down`
+removes both; history in `./data` is kept. Only the audit webhook exists today; traces, DNS,
+etcd and runtime sources are later phases.
+
+`MODE=host` keeps the old setup for working on KubeScope itself: KubeScope runs as a process on
+the host and the API server reaches it through the gateway of the `kind` network (e.g. `172.18.0.1`).
 
 ### Unified event model
 
@@ -138,6 +142,12 @@ Event {
 - [x] History indicator in the toolbar, warning when the size limit shortens history (UI + log)
 - [x] Size pruning in one proportional pass; freed space returned to disk; WAL trimmed
 
+### Phase 2.6: hardening ✅ done (2026-10-24)
+- [x] Fixed lost saves (SQLITE_BUSY_SNAPSHOT): one writer connection with BEGIN IMMEDIATE, read-only readers, reads run to completion, retries
+- [x] Long-running requests (logs, exec, port-forward, proxy) drawn once; 1xx status class
+- [x] KubeScope as a Docker container next to the cluster: `make cluster-up` / `cluster-down` start and remove both
+- [x] Verified with minikube (audit webhook via `host.minikube.internal`); guides for minikube and kubeadm still to write (`docs/`)
+
 ### Phase 3: quick wins ← next
 - Diff view for writes: what changed (`status.phase: Pending → Running`) instead of whole JSON
 - Copy any request as curl / Postman
@@ -180,22 +190,25 @@ Event {
 
 ```
 kubescope/
-├── PLAN.md
-├── README.md
-├── Makefile
+├── PLAN.md  README.md  Makefile
+├── Dockerfile  .dockerignore     image: UI + collector
 ├── cluster/
+│   ├── up.sh  down.sh           start/stop the cluster and the KubeScope container together
 │   ├── kind-config.yaml.tmpl
-│   ├── audit-policy.yaml
-│   ├── up.sh  down.sh
-│   └── generated/            (git ignored, rendered config)
-├── collector/                (Go)
+│   ├── audit-policy.yaml        learning policy (everything)
+│   ├── audit-policy-production.yaml   drops noise at the source, for real clusters
+│   ├── audit-webhook.kubeconfig.tmpl
+│   └── generated/               (git ignored, rendered config)
+├── collector/                   (Go)
 │   ├── main.go
-│   ├── internal/audit/       ingest + classify
-│   ├── internal/store/       ring buffer
-│   ├── internal/server/      http + websocket + embedded UI
-│   └── internal/model/       unified event
-└── web/                      (React + TS + Vite)
-    └── src/
+│   ├── internal/audit/          convert + classify + noise, policy tests
+│   ├── internal/store/          SQLite history (one writer, read-only readers), live fan-out
+│   ├── internal/server/         http + websocket + embedded UI
+│   └── internal/model/          unified event
+├── web/                         (React + TS + Vite)
+│   └── src/
+├── scripts/                     tour.sh, failures.sh (4xx), server-errors.sh (5xx)
+└── data/                        (git ignored) kubescope.db history
 ```
 
 ---

@@ -597,23 +597,23 @@ select.active {
 }
 
 /* Status and verb chips are "show only" filters: off = no filter. */
-.chip.status.s1.on {
+.chip.status-chip.s1.on {
   border-color: var(--muted);
   color: var(--text);
 }
-.chip.status.s2.on {
+.chip.status-chip.s2.on {
   border-color: var(--ok);
   color: var(--ok);
 }
-.chip.status.s3.on {
+.chip.status-chip.s3.on {
   border-color: var(--accent);
   color: var(--accent);
 }
-.chip.status.s4.on {
+.chip.status-chip.s4.on {
   border-color: var(--warn);
   color: var(--warn);
 }
-.chip.status.s5.on {
+.chip.status-chip.s5.on {
   border-color: var(--err);
   color: var(--err);
 }

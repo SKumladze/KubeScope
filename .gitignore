@@ -9,3 +9,4 @@ collector/internal/server/dist/*
 *.db-wal
 *.db-shm
 web/*.tsbuildinfo
+data/

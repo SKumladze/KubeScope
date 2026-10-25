@@ -351,7 +351,7 @@ export function App() {
           {STATUS_CLASSES.map((c) => (
             <button
               key={c.id}
-              className={`chip status s${c.id[0]}${statusOnly.has(c.id) ? ' on' : ''}`}
+              className={`chip status-chip s${c.id[0]}${statusOnly.has(c.id) ? ' on' : ''}`}
               title={`${c.about}. Click to show only these, click more to combine.`}
               onClick={() => toggle(statusOnly, c.id, setStatusOnly)}
             >

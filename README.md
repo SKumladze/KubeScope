@@ -9,27 +9,47 @@ for the roadmap.
 
 ## Requirements
 
-Docker, kind, kubectl, Go 1.24+, Node 20+.
+Docker, kind, kubectl. Go 1.24+ and Node 22+ (24 LTS recommended) only to work on KubeScope itself; the Docker image builds with Node 24 LTS and Go 1.27.
 
 ## Quick start
 
 ```bash
-make build          # builds the UI and the Go binary into bin/kubescope
-make cluster-up     # creates the "kubescope" kind cluster (3 nodes) with the audit webhook
-./bin/kubescope     # start the collector, then open http://localhost:8090
-make demo           # in another terminal: create, scale and delete a deployment
+make cluster-up     # starts KubeScope, then creates the "kubescope" kind cluster (3 nodes)
+                    # open http://localhost:8090
+make demo           # create, scale and delete a deployment, and watch it
+make cluster-down   # removes the cluster and KubeScope (history in ./data is kept)
 ```
 
-The collector must be running for events to show up. If it is down, the API server
-drops audit events after a few retries; the cluster keeps working.
+KubeScope runs as a Docker container (`kubescope-collector`) on the same Docker network as the
+cluster, not inside it. It starts first, so it records the cluster being created, and it keeps
+working while you break things inside the cluster.
+
+```
+your machine
+├── data/kubescope.db            history, kept across cluster-down / cluster-up
+└── Docker network "kind"
+    ├── kubescope-collector      KubeScope (UI on http://localhost:8090, localhost only)
+    └── kubescope-control-plane  kube-apiserver ──audit webhook──▶ kubescope-collector:8090
+        kubescope-worker, kubescope-worker2
+```
+
+| Command | What it does |
+|---|---|
+| `make cluster-up` | Builds the KubeScope image, starts it, creates the cluster |
+| `make cluster-down` | Deletes the cluster, stops and removes KubeScope |
+| `make collector` | Rebuilds and restarts only KubeScope (after changing its code) |
+| `make logs` | Follows KubeScope's log |
+| `make clean-history` | Deletes all recorded history (run while KubeScope is down) |
 
 ## History
 
-Everything is saved to `kubescope.db` (SQLite, one file) and survives restarts.
+Everything is saved to `data/kubescope.db` (SQLite, one file) and survives restarts and
+`cluster-down` / `cluster-up`. Settings are flags; pass them with `ARGS`, e.g.
+`ARGS="-retention 72h -max-db-mb 500" make cluster-up` (or `make collector` to change them later).
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-db` | `kubescope.db` | database file |
+| `-db` | `/data/kubescope.db` in the container | database file |
 | `-retention` | `168h` (7 days) | delete events older than this, `0` keeps forever |
 | `-max-db-mb` | `2048` | when the file grows past this, the oldest events are deleted, even if younger than the retention |
 | `-store-noise` | `smart` | what noise goes into history (it is always shown live): `smart` drops leases, health checks, discovery and API server self-checks, keeps watches, heartbeats and auth without bodies; `meta` keeps all noise without bodies; `full`; `none` |
@@ -120,27 +140,33 @@ kubectl delete deployment web                    # garbage collector deletes rep
 ## How it works
 
 ```
-kube-apiserver ──audit webhook (HTTP POST, batches)──▶ bin/kubescope ──WebSocket──▶ browser
+kube-apiserver ──audit webhook (HTTP POST, batches)──▶ kubescope-collector ──WebSocket──▶ browser
 ```
 
 - `cluster/audit-policy.yaml`: what the API server reports. Writes include bodies, reads only metadata,
   secrets and configmaps never include bodies.
-- `cluster/up.sh`: renders the kind config with the address of this machine as seen from the
-  cluster (the gateway of the `kind` Docker network) and creates the cluster.
+- `cluster/up.sh`: starts the KubeScope container, renders the kind config with the webhook
+  pointing at it (by container name, through Docker's DNS) and creates the cluster.
+- `Dockerfile`: builds the UI and the collector into one small image (about 15 MB).
 - `collector/internal/audit`: converts audit events, works out which component sent each one
   (from the user and user agent) and tags noise.
-- `collector/internal/store`: ring buffer of the last 20,000 events.
+- `collector/internal/store`: SQLite history (one writer connection, read-only readers) and the live stream.
 - `web/`: React + TypeScript UI, embedded into the Go binary at build time.
 
-## Developing the UI
+## Working on KubeScope
+
+Rebuilding the image on every change is slow, so run KubeScope as a plain process instead:
 
 ```bash
-make dev                 # collector on :8090 (go run)
-cd web && npm run dev    # UI with hot reload on http://localhost:5173
+MODE=host make cluster-up   # cluster only; its webhook points at this machine
+make dev                    # KubeScope on :8090 (go run), same ./data history
+cd web && npm run dev       # UI with hot reload on http://localhost:5173
 ```
 
-## Cleanup
+In this mode `make cluster-down` removes only the cluster; stop `make dev` with Ctrl+C.
 
-```bash
-make cluster-down        # deletes only the "kubescope" cluster
-```
+## Running more than one cluster
+
+Several clusters at once (kind + minikube, two kind clusters) can hit the Linux limit on file
+watchers: pods stay Pending and logs say `too many open files`. Raise it with
+`sudo sysctl fs.inotify.max_user_instances=512`.

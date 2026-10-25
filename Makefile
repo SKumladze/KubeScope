@@ -1,4 +1,4 @@
-.PHONY: all web build run dev cluster-up cluster-down demo clean
+.PHONY: all web build run dev cluster-up cluster-down collector logs clean-history demo clean
 
 all: build
 
@@ -9,19 +9,36 @@ web:
 build: web
 	cd collector && go build -o ../bin/kubescope .
 
-run: build
-	./bin/kubescope
-
-# Backend only, for working on the UI with hot reload: run `make dev` and
-# `cd web && npm run dev`, then open http://localhost:5173
-dev:
-	cd collector && go run .
-
+# Start KubeScope (Docker container) and the kind cluster, open http://localhost:8090
 cluster-up:
 	./cluster/up.sh
 
+# Remove the cluster and the KubeScope container. History in ./data is kept.
 cluster-down:
 	./cluster/down.sh
+
+# Rebuild and restart only the KubeScope container (after changing its code).
+collector:
+	docker build -q -t kubescope:local . >/dev/null
+	docker rm -f kubescope-collector >/dev/null 2>&1 || true
+	docker run -d --name kubescope-collector --network kind --user $$(id -u):$$(id -g) \
+		-v $(CURDIR)/data:/data -v /etc/localtime:/etc/localtime:ro -p 127.0.0.1:8090:8090 --restart unless-stopped kubescope:local $(ARGS) >/dev/null
+	@echo "KubeScope restarted: http://localhost:8090"
+
+logs:
+	docker logs -f kubescope-collector
+
+# Delete all recorded history.
+clean-history:
+	rm -f data/kubescope.db data/kubescope.db-wal data/kubescope.db-shm
+
+# For working on KubeScope itself: run it as a process (cluster created with MODE=host).
+# For the UI with hot reload, also run `cd web && npm run dev` and open http://localhost:5173
+run: build
+	./bin/kubescope -db data/kubescope.db
+
+dev:
+	cd collector && go run . -db ../data/kubescope.db
 
 # Something to watch: creates, scales and deletes a deployment.
 demo:
