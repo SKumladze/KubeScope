@@ -1,4 +1,4 @@
-.PHONY: all web build run dev cluster-up cluster-down collector logs clean-history demo clean
+.PHONY: all web build run dev cluster-up cluster-down cluster-down-all collector logs clean-history demo clean
 
 all: build
 
@@ -17,9 +17,15 @@ cluster-up:
 cluster-down:
 	./cluster/down.sh
 
+# Remove EVERYTHING: cluster, KubeScope, history, images. Shows the list and asks first.
+# DRY_RUN=1 only shows the list; YES=1 skips the question.
+cluster-down-all:
+	./cluster/down-all.sh
+
 # Rebuild and restart only the KubeScope container (after changing its code).
 collector:
 	docker build -q -t kubescope:local . >/dev/null
+	docker image prune -f --filter label=io.kubescope.image=collector >/dev/null
 	docker rm -f kubescope-collector >/dev/null 2>&1 || true
 	docker run -d --name kubescope-collector --network kind --user $$(id -u):$$(id -g) \
 		-v $(CURDIR)/data:/data -v /etc/localtime:/etc/localtime:ro -p 127.0.0.1:8090:8090 --restart unless-stopped kubescope:local $(ARGS) >/dev/null

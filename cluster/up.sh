@@ -40,6 +40,8 @@ case "$MODE" in
   docker)
     echo "Building the KubeScope image..."
     docker build -q -t "$IMAGE" "$ROOT" >/dev/null
+    # The previous build loses its name; remove it instead of letting old builds pile up.
+    docker image prune -f --filter label=io.kubescope.image=collector >/dev/null
     docker rm -f "$COLLECTOR" >/dev/null 2>&1 || true
     mkdir -p "$ROOT/data"
     # Runs as you, so ./data stays yours. The UI is published on localhost only.

@@ -39,6 +39,7 @@ your machine
 |---|---|
 | `make cluster-up` | Builds the KubeScope image, starts it, creates the cluster |
 | `make cluster-down` | Deletes the cluster, stops and removes KubeScope |
+| `make cluster-down-all` | Removes **everything**: cluster, KubeScope, history, and the images it downloaded (~1.3 GB). Shows the list and asks first; `DRY_RUN=1` only shows it |
 | `make collector` | Rebuilds and restarts only KubeScope (after changing its code) |
 | `make logs` | Follows KubeScope's log |
 | `make clean-history` | Deletes all recorded history (run while KubeScope is down) |

@@ -20,6 +20,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /kubescope .
 
 # 3. Runtime: no shell, no package manager, non-root by default
 FROM gcr.io/distroless/static-debian12:nonroot
+# Lets cleanup find every KubeScope build, including old ones that lost their name.
+LABEL io.kubescope.image=collector
 COPY --from=collector /kubescope /kubescope
 EXPOSE 8090
 VOLUME /data
