@@ -4,6 +4,8 @@ See what Kubernetes does behind the scenes. Run a `kubectl` command and watch ev
 component (kubectl, API server, etcd, controllers, scheduler, kubelet...) talk to each
 other as a live sequence diagram.
 
+![KubeScope: a kubectl command, the scheduler's decision, and recorded 5xx errors](docs/images/kubescope-demo.gif)
+
 Works with a local **kind** cluster that KubeScope creates and configures. See [PLAN.md](PLAN.md)
 for the roadmap.
 
@@ -76,6 +78,8 @@ In the UI:
 - **Copy link** copies a URL that opens exactly this view (range, search, status, verbs, namespace and step), handy for bug reports.
 
 ## Using it
+
+![The deployment chain with the scheduler's binding request open in the details panel](docs/images/kubescope.png)
 
 | Control | What it does |
 |---|---|

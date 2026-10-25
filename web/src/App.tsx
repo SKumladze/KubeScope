@@ -69,7 +69,11 @@ export function App() {
     return c
   }, [isLive, events, clearedAt, hist.noiseCounts])
 
-  const markers = useMemo(() => events.filter((e) => isMarker(e) && e.id > clearedAt), [events, clearedAt])
+  // "Clear screen" is a live-view action: it must not hide markers when browsing history.
+  const markers = useMemo(
+    () => events.filter((e) => isMarker(e) && (!isLive || e.id > clearedAt)),
+    [events, isLive, clearedAt],
+  )
 
   // Focusing a marker shows only the events between it and the next marker.
   const focus = useMemo(() => {
